@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="ie=edge">
     <title>Document</title>
-    <script src="https://storage.googleapis.com/assets.meld.cx/agent/1.0.18/Agent.js"></script>
+    <script src="https://storage.googleapis.com/assets.meld.cx/agent/1.0.38/Agent.js"></script>
     <script src="https://code.jquery.com/jquery-3.4.1.min.js"></script>
     <style>
         .information {
@@ -38,10 +38,10 @@
                     <div>
                         <label for="lstChannel">Strip Channel</label>
                         <select id="lstChannel">
-                            <option value="0">0</option>
                             <option value="1">1</option>
                             <option value="2">2</option>
                             <option value="3">3</option>
+                            <option value="4">4</option>
                         </select>
                         <label for="lstAddress">Address</label>
                         <select id="lstAddress"></select>
@@ -68,7 +68,8 @@
     </div>
     <script>
         const [strFirmDate, strFirmVer, strManu, strModel] = document.querySelectorAll('strong');
-        const [lstChannel, lstAddress, lstFlashing] = document.querySelectorAll('select');
+        const [lstChannel, lstAddress] = document.querySelectorAll('select');
+        const lstFlashing = document.getElementById('lstFlashing');
         const [btnEnableAll, btnDisableAll, btnEnableOne, btnDisableOne] = document.querySelectorAll('button');
         const [inpColor] = document.querySelectorAll('input');
 
@@ -76,14 +77,15 @@
             .then(() => window.Agent)
             .then(agent => agent.Peripherals.LED.getInfo())
             .then(info => {
-                strFirmDate.textContent = info.firmwareDate;
-                strFirmVer.textContent = info.firmwareVersion;
-                strManu.textContent = info.manufacturer;
-                strModel.textContent = info.model;
+                console.log(JSON.stringify(info));
+                strFirmDate.textContent = info.FirmwareDate || 'Unknown';
+                strFirmVer.textContent = info.FirmwareVersion || 'Unknown';
+                strManu.textContent = info.Manufacturer || 'Unknown';
+                strModel.textContent = info.Model || 'Unknown';
             })
-            .catch(ex => console.error(ex));
+            .catch(ex => console.error(ex.toString()));
 
-        let channel = 0;
+        let channel = 1;
         lstChannel.onchange = () => {
             channel = parseInt(lstChannel.value);
         };
@@ -98,30 +100,16 @@
             address = parseInt(lstAddress.value);
         }
 
-        lstFlashing.onchange = async() => {
-            const mode = parseInt(lstFlashing.value);
-
-            await window.Agent.onReadyAsync();
-            const {LED} = window.Agent.Peripherals;
-
-            if (mode === 0) {
-                await LED.toggleFlashOff(channel);
-            } else {
-                await LED.toggleFlashOn(channel);
-                await LED.setFlashRate(channel, mode);
-            }
-        }
-
         btnEnableAll.onclick = async() => {
             await window.Agent.onReadyAsync();
             const {LED} = window.Agent.Peripherals;
 
             const ledColor = await LED.MakeColorFromHex(color);
-
-            await LED.toggleAllOn(channel, ledColor);
-
             const mode = parseInt(lstFlashing.value);
-            await LED.setFlashRate(channel, mode);
+
+            if (mode > 0) {
+                await LED.toggleFlashOn(channel, mode, ledColor);
+            } else await LED.toggleAllOn(channel, ledColor);
         }
 
         btnDisableAll.onclick = async() => {
@@ -136,11 +124,10 @@
             const {LED} = window.Agent.Peripherals;
 
             const ledColor = await LED.MakeColorFromHex(color);
+            const mode = parseInt(lstFlashing.value);
 
             await LED.toggleOneOn(channel, address, ledColor);
-
-            const mode = parseInt(lstFlashing.value);
-            await LED.setFlashRate(channel, mode);
+            if (mode) await LED.toggleFlashOn(channel, mode);
         }
 
         btnDisableOne.onclick = async() => {
