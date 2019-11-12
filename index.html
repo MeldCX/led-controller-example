@@ -28,6 +28,9 @@
                 <b>Firmware Version:</b> <strong></strong></br>
                 <b>Manufacturer:</b> <strong></strong></br>
                 <b>Model:</b> <strong></strong></br>
+                <b>isAttached:</b> <strong></strong><br/>
+                <b>isConnected:</b> <strong></strong><br/>
+                <b>isEnabled</b> <strong></strong><br/>
             </fieldset>
         </div>
         <div style="grid-area: c1;">
@@ -45,6 +48,10 @@
                         </select>
                         <label for="lstAddress">Address</label>
                         <select id="lstAddress"></select>
+                        <label for="txtLEDCount">LED Count</label>
+                        <input type="text" id="txtLEDCount">
+                        <button>Get</button>
+                        <button>Set</button>
                     </div>
                     <div>
                         <label for="inpColor">LED Strip Color</label>
@@ -56,6 +63,15 @@
                             <option value="0">Disabled</option>
                         </select>
                     </div>
+                    <div>
+                        <label for="lstType">Strip Type</label>
+                        <select id="lstType">
+                            <option value="0">WS2812B</option>
+                            <option value="1">WS2811</option>
+                        </select>
+                        <button>Get</button>
+                        <button>Set</button>
+                    </div>
                     <div style="display: flex; justify-content: space-around;">
                         <button>All On</button>
                         <button>All Off</button>
@@ -65,25 +81,86 @@
                 </div>
             </fieldset>
         </div>
+        <fieldset>
+            <legend>Events</legend>
+            <div class="events"></div>
+        </fieldset>
     </div>
     <script>
-        const [strFirmDate, strFirmVer, strManu, strModel] = document.querySelectorAll('strong');
-        const [lstChannel, lstAddress] = document.querySelectorAll('select');
-        const lstFlashing = document.getElementById('lstFlashing');
-        const [btnEnableAll, btnDisableAll, btnEnableOne, btnDisableOne] = document.querySelectorAll('button');
-        const [inpColor] = document.querySelectorAll('input');
+        const [strFirmDate, strFirmVer, strManu, strModel, strIsAttached, strIsConnected, strIsEnabled] = document.querySelectorAll('strong');
+        const [lstChannel, lstAddress, lstFlashing, lstType] = document.querySelectorAll('select');
+        const [btnGetLEDCount, btnSetLEDCount, btnGetType, btnSetType, btnEnableAll, btnDisableAll, btnEnableOne, btnDisableOne] = document.querySelectorAll('button');
+        const [txtLEDCount, inpColor] = document.querySelectorAll('input');
+        const events = document.querySelector('.events');
+
+        const logEvent = msg => {
+            const div = document.createElement('div');
+            div.textContent = msg;
+
+            events.appendChild(div);
+        };
+
+        const getInfo = async() => {
+            logEvent('Gathering information');
+            const {LED} = window.Agent.Peripherals;
+            const info = await LED.getInfo();
+
+            strFirmDate.textContent = info.FirmwareDate || 'Unknown';
+            strFirmVer.textContent = info.FirmwareVersion || 'Unknown';
+            strManu.textContent = info.Manufacturer || 'Unknown';
+            strModel.textContent = info.Model || 'Unknown';
+            strIsAttached.textContent = await LED.isAttached();
+            strIsConnected.textContent = await LED.isConnected();
+            strIsEnabled.textContent = await LED.isEnabled();
+        }
 
         window.Agent.onReadyAsync()
             .then(() => window.Agent)
-            .then(agent => agent.Peripherals.LED.getInfo())
-            .then(info => {
-                console.log(JSON.stringify(info));
-                strFirmDate.textContent = info.FirmwareDate || 'Unknown';
-                strFirmVer.textContent = info.FirmwareVersion || 'Unknown';
-                strManu.textContent = info.Manufacturer || 'Unknown';
-                strModel.textContent = info.Model || 'Unknown';
+            .then(async(agent) => {
+                await window.Agent.App.disableScheduler();
+
+                const {displayId} = window.Agent;
+                const windowName = `Window-${displayId}`;
+                console.warn(windowName);
+                const Webview = window.Agent.Webview.Manager[windowName];
+                const webviews = await Webview.getWebviews();
+                const currentWebview = webviews.find(({origin}) => origin === window.location.origin);
+
+                await Webview.setWebviewConfiguration(currentWebview.id, {url: window.location.href, visible: true, width: '50%'});
+                await Webview.draw(currentWebview.id);
+
+                const wid = await Webview.create({url: 'http://127.0.0.1:9089/', left: '50%', width: '50%', zIndex: 100, visible: true});
+                console.warn(wid);
+
+                if (agent.Peripherals && agent.Peripherals.LED) {
+                    logEvent('LED Module Attached');
+                    const {LED} = agent.Peripherals;
+
+                    logEvent('Register Event Listeners');
+                    LED.onConnected(() => logEvent('LED Module USB Connected'));
+                    LED.onDisconnected(() => logEvent('LED Module USB Disconnected'));
+                    LED.onAttached(() => logEvent('LED Module USB Attached'));
+                    LED.onRemoved(() => logEvent('LED Module USB Removed'));
+
+                    getInfo();
+                } else logEvent('Waiting for LED Module to attach');
             })
             .catch(ex => console.error(ex.toString()));
+
+        window.Agent.onUpdated(module => {
+            if (module.endsWith('LED')) {
+                logEvent('LED Module Attached');
+                const {LED} = agent.Peripherals;
+
+                logEvent('Register Event Listeners');
+                LED.onConnected(() => logEvent('LED Module Connected'));
+                LED.onDisconnected(() => logEvent('LED Module Disconnected'));
+                LED.onAttached(() => logEvent('LED Module Attached'));
+                LED.onRemoved(() => logEvent('LED Module Removed'));
+
+                getInfo();
+            }
+        })
 
         let channel = 1;
         lstChannel.onchange = () => {
@@ -98,6 +175,34 @@
         let address = 0;
         lstAddress.onchange = () => {
             address = parseInt(lstAddress.value);
+        }
+
+        btnGetType.onclick = async() => {
+            const {LED} = window.Agent.Peripherals;
+
+            const type = await LED.getType();
+            lstType.value = type.code.toString();
+        };
+        
+        btnSetType.onclick = async() => {
+            const {LED} = window.Agent.Peripherals;
+
+            const type = parseInt(lstType.value);
+            await LED.setType(type);
+        }
+
+        btnGetLEDCount.onclick = async() => {
+            const {LED} = window.Agent.Peripherals;
+
+            const count = await LED.getLEDCount(channel);
+            txtLEDCount.value = count;
+        }
+
+        btnSetLEDCount.onclick = async() => {
+            const {LED} = window.Agent.Peripherals;
+            const count = parseInt(txtLEDCount.value);
+
+            await LED.setLEDCount(channel, count);
         }
 
         btnEnableAll.onclick = async() => {
